@@ -46,6 +46,7 @@ def main() -> None:
     technical_results = interview_results.get("technical_round", {})
     hr_results = interview_results.get("hr_round", {})
     behavioral_scores = interview_results.get("behavioral_scores", {})
+    final_report = interview_results.get("final_report", {})
 
     print("\nTechnical Results:")
     print(json.dumps(technical_results, indent=2))
@@ -55,6 +56,9 @@ def main() -> None:
 
     print("\nBehavioral Scores:")
     print(json.dumps(behavioral_scores, indent=2))
+
+    print("\nFinal Report:")
+    print(json.dumps(final_report, indent=2))
 
 
 if __name__ == "__main__":
