@@ -55,7 +55,7 @@ class InterviewState(TypedDict, total=False):
     skipped_question: bool
 
     skill_results: Dict[str, Any]
-    all_responses: List[str]
+    all_responses: List[Dict[str, str]]
 
     hr_results: Dict[str, Any]
     behavioral_scores: Dict[str, Any]
@@ -100,7 +100,7 @@ class LangGraphInterviewFlow:
         self.skill_graphs: Dict[str, SkillGraph] = {}
         self.bkt_models: Dict[str, BKTModel] = {}
         self.cat_engines: Dict[str, CATEngine] = {}
-        self.all_responses: list[str] = []
+        self.all_responses: list[dict[str, str]] = []
         self.session_weak_areas: set[str] = set()
         self.session_id: str = ""
 
@@ -153,7 +153,7 @@ class LangGraphInterviewFlow:
         hr_round = final_state.get("hr_results", {})
         behavioral_scores = final_state.get("behavioral_scores", {})
 
-        session_data = self._build_session_data(technical_round, hr_round)
+        session_data = self._build_session_data(technical_round, hr_round, behavioral_scores)
 
         for skill, payload in technical_round.items():
             if not isinstance(payload, dict):
@@ -276,7 +276,11 @@ class LangGraphInterviewFlow:
         responses = hr_results.get("responses", [])
         if isinstance(responses, list):
             self.all_responses.extend(
-                [str(response).strip() for response in responses if str(response).strip()]
+                [
+                    {"phase": "hr", "answer": str(response).strip()}
+                    for response in responses
+                    if str(response).strip()
+                ]
             )
         return hr_results
 
@@ -314,7 +318,7 @@ class LangGraphInterviewFlow:
 
         if "all_responses" not in state:
             state["all_responses"] = []
-        state["all_responses"].append(answer)
+        state["all_responses"].append({"phase": "technical", "answer": answer})
 
         state["answer"] = answer
         state["skipped_question"] = skipped_question
@@ -485,7 +489,11 @@ class LangGraphInterviewFlow:
             state["all_responses"] = []
         if isinstance(hr_answers, list):
             state["all_responses"].extend(
-                [str(answer).strip() for answer in hr_answers if str(answer).strip()]
+                [
+                    {"phase": "hr", "answer": str(answer).strip()}
+                    for answer in hr_answers
+                    if str(answer).strip()
+                ]
             )
             self.all_responses = list(state["all_responses"])
         state["hr_results"] = hr_results
@@ -546,6 +554,7 @@ class LangGraphInterviewFlow:
         self,
         technical_round: Dict[str, Any],
         hr_round: Dict[str, Any],
+        behavioral_scores: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Create one MongoDB session object from current interview outputs."""
         skill_scores: Dict[str, float] = {}
@@ -564,16 +573,31 @@ class LangGraphInterviewFlow:
         hr_block = {
             "overall_score": self._average(
                 [
-                    float(avg_scores.get("communication", 0.0)),
-                    float(avg_scores.get("confidence", 0.0)),
                     float(avg_scores.get("leadership", 0.0)),
                     float(avg_scores.get("problem_solving", 0.0)),
+                    float(avg_scores.get("adaptability", 0.0)),
+                    float(avg_scores.get("teamwork", 0.0)),
                 ]
             ),
-            "communication": float(avg_scores.get("communication", 0.0)),
-            "confidence": float(avg_scores.get("confidence", 0.0)),
             "leadership": float(avg_scores.get("leadership", 0.0)),
             "problem_solving": float(avg_scores.get("problem_solving", 0.0)),
+            "adaptability": float(avg_scores.get("adaptability", 0.0)),
+            "teamwork": float(avg_scores.get("teamwork", 0.0)),
+        }
+
+        behavioral_block = {
+            "communication": float(
+                behavioral_scores.get("communication", behavioral_scores.get("communication_score", 0.0))
+            ),
+            "confidence": float(
+                behavioral_scores.get("confidence", behavioral_scores.get("confidence_score", 0.0))
+            ),
+            "summary": str(
+                behavioral_scores.get(
+                    "behavioral_summary",
+                    behavioral_scores.get("summary", "Behavioral analysis completed."),
+                )
+            ).strip(),
         }
 
         return {
@@ -587,10 +611,15 @@ class LangGraphInterviewFlow:
             },
             "hr": {
                 "overall_score": round(hr_block["overall_score"], 4),
-                "communication": round(hr_block["communication"], 4),
-                "confidence": round(hr_block["confidence"], 4),
                 "leadership": round(hr_block["leadership"], 4),
                 "problem_solving": round(hr_block["problem_solving"], 4),
+                "adaptability": round(hr_block["adaptability"], 4),
+                "teamwork": round(hr_block["teamwork"], 4),
+            },
+            "behavioral": {
+                "communication": round(behavioral_block["communication"], 4),
+                "confidence": round(behavioral_block["confidence"], 4),
+                "summary": behavioral_block["summary"],
             },
         }
 

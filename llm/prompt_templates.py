@@ -134,10 +134,13 @@ Do NOT return anything outside JSON.
 """.strip()
 
 HR_EVALUATION_PROMPT = """
-Evaluate this HR response for communication, clarity, and professionalism.
+Evaluate this HR response for role-based soft skills.
 Return strict JSON with keys:
-- score: float between 0 and 1
-- feedback: string
+- leadership: float between 0 and 1
+- problem_solving: float between 0 and 1
+- adaptability: float between 0 and 1
+- teamwork: float between 0 and 1
+- summary: string
 
 Question: {question}
 Answer: {answer}
@@ -160,18 +163,18 @@ Candidate Answer:
 
 Evaluate the candidate on the following (0 to 1):
 
-- communication (clarity, structure)
-- confidence (no hesitation, no weak language)
 - leadership (initiative, ownership)
 - problem_solving (logical thinking)
+	- adaptability (learning agility, handling change)
+	- teamwork (collaboration, empathy, alignment)
 
 Return STRICT JSON:
 
 {{
-	"communication": 0-1,
-	"confidence": 0-1,
 	"leadership": 0-1,
 	"problem_solving": 0-1,
+	"adaptability": 0-1,
+	"teamwork": 0-1,
 	"summary": "short explanation"
 }}
 
@@ -179,25 +182,48 @@ Do NOT return anything else.
 """.strip()
 
 
-def build_communication_prompt(responses: list[str]) -> str:
-	"""Build prompt for global communication-quality evaluation."""
-	joined_responses = "\n".join(
-		f"- {response.strip()}" for response in responses if response.strip()
-	)
-	if not joined_responses:
-		joined_responses = "-"
+def build_behavioral_prompt(full_transcript: str) -> str:
+	"""Build strict JSON prompt for full-transcript behavioral evaluation."""
+	transcript = full_transcript.strip() or "-"
 
 	return f"""
-Evaluate the communication quality of the candidate.
+You are an expert interview behavioral evaluator.
 
-Responses:
-{joined_responses}
+Evaluate the FULL interview transcript.
 
-Score from 0 to 1 based on:
+Transcript:
+{transcript}
+
+Score from 0 to 1 using these rules:
+
+Communication:
 - clarity
-- sentence structure
+- structure
 - coherence
-- lack of ambiguity
+- conciseness
 
-Return ONLY a number.
+Confidence:
+- weak word ratio (normalized over the full transcript)
+- assertiveness
+- consistency across answers
+
+Important constraints:
+- Do NOT over-penalize a single weak word
+- Evaluate globally across the entire transcript
+
+Return STRICT JSON:
+
+{{
+	"communication": 0-1,
+	"confidence": 0-1,
+	"behavioral_summary": "short explanation"
+}}
+
+Do NOT return anything outside JSON.
 """.strip()
+
+
+def build_communication_prompt(responses: list[str]) -> str:
+	"""Backward-compatible wrapper for behavioral prompt creation."""
+	transcript = " ".join(response.strip() for response in responses if response.strip())
+	return build_behavioral_prompt(transcript)

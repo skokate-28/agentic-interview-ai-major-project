@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Dict, List
 
 from llm.groq_client import GroqClient
@@ -11,9 +10,7 @@ from utils.helpers import clamp, safe_json_loads
 
 
 class HRAgent:
-    """Conduct a fixed HR round and score soft skills from LLM + NLP signals."""
-
-    WEAK_WORDS = ["maybe", "i think", "probably", "not sure", "guess"]
+    """Conduct a fixed HR round and score role-based soft skills."""
 
     def __init__(self, llm_client: GroqClient | None = None) -> None:
         self.llm_client = llm_client or GroqClient()
@@ -45,12 +42,11 @@ class HRAgent:
                     "question": question,
                     "answer": answer,
                     "scores": {
-                        "communication": evaluation["communication"],
-                        "confidence": evaluation["confidence"],
                         "leadership": evaluation["leadership"],
                         "problem_solving": evaluation["problem_solving"],
+                        "adaptability": evaluation["adaptability"],
+                        "teamwork": evaluation["teamwork"],
                     },
-                    "confidence_penalty": evaluation["confidence_penalty"],
                     "summary": evaluation["summary"],
                 }
             )
@@ -63,30 +59,26 @@ class HRAgent:
         }
 
     def evaluate_response(self, question: str, answer: str) -> Dict[str, object]:
-        """Evaluate one HR answer and apply NLP-based confidence penalty."""
+        """Evaluate one HR answer using role-focused soft-skill dimensions."""
         prompt = build_hr_evaluation_prompt(question=question, answer=answer)
         response = self.llm_client.generate_response(prompt)
         parsed = safe_json_loads(response)
 
-        communication = self._to_score(parsed.get("communication") if isinstance(parsed, dict) else None)
-        llm_confidence = self._to_score(parsed.get("confidence") if isinstance(parsed, dict) else None)
         leadership = self._to_score(parsed.get("leadership") if isinstance(parsed, dict) else None)
         problem_solving = self._to_score(parsed.get("problem_solving") if isinstance(parsed, dict) else None)
+        adaptability = self._to_score(parsed.get("adaptability") if isinstance(parsed, dict) else None)
+        teamwork = self._to_score(parsed.get("teamwork") if isinstance(parsed, dict) else None)
         summary = (
             str(parsed.get("summary", "HR evaluation completed.")).strip()
             if isinstance(parsed, dict)
             else "HR evaluation completed."
         )
 
-        confidence_penalty = self._confidence_penalty(answer)
-        final_confidence = max(0.0, llm_confidence - confidence_penalty)
-
         return {
-            "communication": communication,
-            "confidence": clamp(final_confidence),
             "leadership": leadership,
             "problem_solving": problem_solving,
-            "confidence_penalty": round(confidence_penalty, 4),
+            "adaptability": adaptability,
+            "teamwork": teamwork,
             "summary": summary,
         }
 
@@ -98,34 +90,22 @@ class HRAgent:
         except (TypeError, ValueError):
             return default
 
-    def _confidence_penalty(self, answer: str) -> float:
-        """Compute weak-language penalty from answer text."""
-        words = re.findall(r"\b\w+\b", answer.lower())
-        total_words = max(1, len(words))
-        lower_answer = answer.lower()
-
-        weak_count = 0
-        for weak_word in self.WEAK_WORDS:
-            weak_count += lower_answer.count(weak_word)
-
-        return weak_count / total_words
-
     @staticmethod
     def _compute_averages(per_question_results: List[Dict[str, object]]) -> Dict[str, float]:
         """Compute average soft-skill scores across all HR answers."""
         if not per_question_results:
             return {
-                "communication": 0.0,
-                "confidence": 0.0,
                 "leadership": 0.0,
                 "problem_solving": 0.0,
+                "adaptability": 0.0,
+                "teamwork": 0.0,
             }
 
         totals = {
-            "communication": 0.0,
-            "confidence": 0.0,
             "leadership": 0.0,
             "problem_solving": 0.0,
+            "adaptability": 0.0,
+            "teamwork": 0.0,
         }
 
         for row in per_question_results:

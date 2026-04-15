@@ -57,6 +57,7 @@ def generate_final_report(user_data: Dict[str, Any], session_data: Dict[str, Any
     """Build final structured report including technical, HR, and trend graphs."""
     technical = session_data.get("technical", {})
     hr = session_data.get("hr", {})
+    behavioral = session_data.get("behavioral", {})
 
     skill_scores_raw = technical.get("skill_scores", {})
     skill_scores = {
@@ -77,15 +78,29 @@ def generate_final_report(user_data: Dict[str, Any], session_data: Dict[str, Any
     }
 
     hr_metrics = {
-        "communication": float(hr.get("communication", 0.0)),
-        "confidence": float(hr.get("confidence", 0.0)),
         "leadership": float(hr.get("leadership", 0.0)),
         "problem_solving": float(hr.get("problem_solving", 0.0)),
+        "adaptability": float(hr.get("adaptability", 0.0)),
+        "teamwork": float(hr.get("teamwork", 0.0)),
     }
     hr_overall = _avg(list(hr_metrics.values()))
     hr_section = {
         "overall_score": round(hr_overall, 4),
         **{key: round(value, 4) for key, value in hr_metrics.items()},
+    }
+
+    behavioral_section = {
+        "communication": round(
+            float(behavioral.get("communication", behavioral.get("communication_score", 0.0))),
+            4,
+        ),
+        "confidence": round(
+            float(behavioral.get("confidence", behavioral.get("confidence_score", 0.0))),
+            4,
+        ),
+        "summary": str(
+            behavioral.get("summary", behavioral.get("behavioral_summary", "Behavioral analysis completed."))
+        ).strip(),
     }
 
     existing_sessions = user_data.get("sessions", [])
@@ -105,10 +120,10 @@ def generate_final_report(user_data: Dict[str, Any], session_data: Dict[str, Any
     skill_histories: dict[str, list[dict[str, Any]]] = {}
     hr_histories: dict[str, list[dict[str, Any]]] = {
         "overall_score": [],
-        "communication": [],
-        "confidence": [],
         "leadership": [],
         "problem_solving": [],
+        "adaptability": [],
+        "teamwork": [],
     }
 
     for session in timeline_sessions:
@@ -158,6 +173,7 @@ def generate_final_report(user_data: Dict[str, Any], session_data: Dict[str, Any
     return {
         "technical": technical_section,
         "hr": hr_section,
+        "behavioral": behavioral_section,
         "graphs": {
             "overall_history": overall_history,
             "skill_histories": skill_histories,
