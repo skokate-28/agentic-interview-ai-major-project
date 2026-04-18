@@ -1,0 +1,113 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background: linear-gradient(180deg, #f6f8fb 0%, #eef4ff 100%);
+  color: #14213d;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 24px;
+}
+
+.panel {
+  width: min(980px, 100%);
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(20, 33, 61, 0.08);
+  padding: 24px;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin-top: 0;
+}
+
+label {
+  display: block;
+  margin: 12px 0 6px;
+  font-weight: 600;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid #c9d5f0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+textarea {
+  resize: vertical;
+}
+
+button {
+  margin-top: 16px;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #0f62fe;
+  color: #ffffff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.question-box {
+  margin-top: 12px;
+  margin-bottom: 14px;
+  background: #f5f8ff;
+  border-left: 4px solid #0f62fe;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.audio-placeholder {
+  margin-top: 10px;
+  border: 1px dashed #8ea7dc;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fbff;
+}
+
+.error {
+  margin-top: 12px;
+  color: #b00020;
+  font-weight: 600;
+}
+
+.chart-block {
+  margin-bottom: 18px;
+}
+
+pre {
+  background: #f4f6fb;
+  border-radius: 8px;
+  padding: 10px;
+  overflow-x: auto;
+}
+
+@media (max-width: 768px) {
+  .app-shell {
+    padding: 12px;
+  }
+
+  .panel {
+    padding: 16px;
+  }
+}

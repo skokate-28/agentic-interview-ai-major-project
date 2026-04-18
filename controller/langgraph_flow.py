@@ -286,17 +286,28 @@ class LangGraphInterviewFlow:
 
     def question_node(self, state: InterviewState) -> InterviewState:
         """Generate next technical question for current skill and CAT difficulty."""
-        skill = state["current_skill"]
-        state["question_difficulty"] = int(state.get("difficulty", 3))
-        question = self.question_agent.generate_question(
-            skill=skill,
-            previous_question=state.get("question", ""),
-            evaluation_summary=str(state.get("evaluation", {}).get("summary", "")),
-            difficulty=int(state.get("difficulty", 3)),
-            weak_areas=list(state.get("selected_weak_areas", [])),
+        current_skill = str(state["current_skill"]).strip()
+        difficulty_level = int(state.get("difficulty", 3))
+        state["question_difficulty"] = difficulty_level
+
+        candidate_questions = self.question_agent.get_candidate_questions(current_skill)
+        if not candidate_questions:
+            raise Exception("No valid questions for current skill")
+
+        next_question = self.question_agent.select_question_based_on_difficulty(
+            candidate_questions,
+            difficulty_level,
         )
 
-        state["question"] = question
+        print("Current Skill:", current_skill)
+        print("Selected Question Skill:", next_question["skill"])
+
+        if next_question["skill"] != current_skill:
+            raise Exception(
+                f"SKILL DRIFT ERROR: expected {current_skill}, got {next_question['skill']}"
+            )
+
+        state["question"] = str(next_question["question"])
         return state
 
     def answer_node(self, state: InterviewState) -> InterviewState:
@@ -387,7 +398,8 @@ class LangGraphInterviewFlow:
         bkt: BKTModel = state["bkt_model"]
 
         state["prev_probability"] = float(state.get("probability", bkt.current_probability))
-        new_probability = bkt.update(float(state.get("score", 0.0)))
+        question_count = int(state.get("question_count", 0))
+        new_probability = bkt.update(float(state.get("score", 0.0)), n=question_count)
 
         state["probability"] = new_probability
         return state

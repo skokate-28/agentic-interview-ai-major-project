@@ -16,7 +16,7 @@ GROQ_API_URL: str = os.getenv(
 )
 
 MAX_QUESTIONS_PER_SKILL: int = int(os.getenv("MAX_QUESTIONS_PER_SKILL", "5"))
-BKT_ALPHA: float = float(os.getenv("BKT_ALPHA", "0.2"))
+BKT_ALPHA: float = float(os.getenv("BKT_ALPHA", "0.4"))
 CONVERGENCE_THRESHOLD: float = float(os.getenv("CONVERGENCE_THRESHOLD", "0.85"))
 
 REQUEST_TIMEOUT_SECONDS: int = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "20"))

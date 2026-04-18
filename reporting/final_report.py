@@ -65,25 +65,47 @@ def generate_final_report(user_data: Dict[str, Any], session_data: Dict[str, Any
         for skill, score in skill_scores_raw.items()
         if isinstance(score, (int, float))
     }
+    technical_scores = [
+        float(value)
+        for value in technical.get("scores", [])
+        if isinstance(value, (int, float))
+    ]
     session_weak_areas = [str(item) for item in technical.get("session_weak_areas", [])]
 
-    technical_overall = _avg(list(skill_scores.values()))
+    technical_overall_raw = technical.get("overall_score")
+    if isinstance(technical_overall_raw, (int, float)):
+        technical_overall = float(technical_overall_raw)
+    elif technical_scores:
+        technical_overall = _avg(technical_scores)
+    else:
+        technical_overall = _avg(list(skill_scores.values()))
     summary = generate_summary(skill_scores, session_weak_areas)
 
     technical_section = {
         "overall_score": round(technical_overall, 4),
+        "scores": [round(value, 4) for value in technical_scores],
         "skill_scores": {k: round(v, 4) for k, v in skill_scores.items()},
         "session_weak_areas": session_weak_areas,
         "summary": summary,
     }
 
+    communication = float(hr.get("communication", behavioral.get("communication", 0.0)))
+    confidence = float(hr.get("confidence", behavioral.get("confidence", 0.0)))
+    leadership = float(hr.get("leadership", 0.0))
+    problem_solving = float(hr.get("problem_solving", 0.0))
     hr_metrics = {
-        "leadership": float(hr.get("leadership", 0.0)),
-        "problem_solving": float(hr.get("problem_solving", 0.0)),
+        "communication": communication,
+        "confidence": confidence,
+        "leadership": leadership,
+        "problem_solving": problem_solving,
         "adaptability": float(hr.get("adaptability", 0.0)),
         "teamwork": float(hr.get("teamwork", 0.0)),
     }
-    hr_overall = _avg(list(hr_metrics.values()))
+    hr_overall_raw = hr.get("overall_score")
+    if isinstance(hr_overall_raw, (int, float)):
+        hr_overall = float(hr_overall_raw)
+    else:
+        hr_overall = _avg([communication, confidence, leadership, problem_solving])
     hr_section = {
         "overall_score": round(hr_overall, 4),
         **{key: round(value, 4) for key, value in hr_metrics.items()},

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Dict, List
@@ -39,8 +40,6 @@ class SkillGraph:
         """Update skill proficiency, confidence, and weak-area metadata."""
         normalized_score = _clamp(score)
         normalized_probability = _clamp(probability)
-        previous_proficiency = self.proficiency
-        delta = abs(normalized_probability - previous_proficiency)
 
         self.history.append(
             {
@@ -50,9 +49,18 @@ class SkillGraph:
         )
 
         self.proficiency = normalized_probability
-        normalized_progress = min(1.0, max(0.0, question_count / max(1, max_questions)))
-        confidence = 0.5 * normalized_progress + 0.5 * (1 - delta)
+        p = normalized_probability
+        n = max(0, int(question_count))
+        uncertainty = p * (1 - p)
+
+        k = 0.3
+        experience = 1 - math.exp(-k * n)
+
+        confidence = experience * (1 - uncertainty)
         self.confidence = _clamp(confidence)
+        print(
+            f"[CONFIDENCE DEBUG] p={p}, n={n}, uncertainty={uncertainty}, confidence={self.confidence}"
+        )
 
         for concept in weak_areas:
             self.add_weak_area(concept, question_difficulty)
