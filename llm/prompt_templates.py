@@ -134,12 +134,16 @@ Do NOT return anything outside JSON.
 """.strip()
 
 HR_EVALUATION_PROMPT = """
-Evaluate this HR response for role-based soft skills.
+Evaluate this HR response for weighted soft-skill quality metrics.
 Return strict JSON with keys:
-- leadership: float between 0 and 1
-- problem_solving: float between 0 and 1
-- adaptability: float between 0 and 1
-- teamwork: float between 0 and 1
+- relevance: float between 0 and 1
+- reasoning: float between 0 and 1
+- clarity: float between 0 and 1
+- specificity: float between 0 and 1
+- outcome: float between 0 and 1
+- authenticity: float between 0 and 1
+- tone: float between 0 and 1
+- final_score: float between 0 and 1
 - summary: string
 
 Question: {question}
@@ -147,13 +151,17 @@ Answer: {answer}
 """.strip()
 
 
-def build_hr_evaluation_prompt(question: str, answer: str) -> str:
-	"""Build a strict JSON-only HR evaluation prompt for soft skill scoring."""
+def build_hr_evaluation_prompt(question: str, answer: str, skill: str = "") -> str:
+	"""Build strict JSON prompt for HR rubric scoring with weighted final score."""
 	question_text = question.strip() or "N/A"
 	answer_text = answer.strip() or ""
+	skill_text = skill.strip() or "general soft skill"
 
 	return f"""
 You are an expert HR evaluator.
+
+Target HR Skill:
+{skill_text}
 
 Question:
 {question_text}
@@ -161,24 +169,111 @@ Question:
 Candidate Answer:
 {answer_text}
 
-Evaluate the candidate on the following (0 to 1):
+Evaluate the answer using these independent metrics (0 to 1):
 
-- leadership (initiative, ownership)
-- problem_solving (logical thinking)
-	- adaptability (learning agility, handling change)
-	- teamwork (collaboration, empathy, alignment)
+- relevance: directly answers the question
+- reasoning: clear thinking, judgment, decision quality
+- clarity: structure, readability, flow
+- specificity: concrete examples vs vague statements
+- outcome: measurable impact, result, or learnings
+- authenticity: natural, credible, not buzzword-heavy
+- tone: professional and confident communication
+
+Scoring constraints:
+- Score each metric independently.
+- Do not give uniformly high scores without evidence from the answer.
+- Penalize vague, generic, buzzword-heavy, or template-like responses.
+- Reward structured, example-based answers with clear reasoning and outcomes.
+- Use the full 0 to 1 range when justified.
+
+Final weighted score formula:
+final_score =
+0.20 * relevance +
+0.20 * reasoning +
+0.15 * clarity +
+0.15 * specificity +
+0.15 * outcome +
+0.10 * authenticity +
+0.05 * tone
 
 Return STRICT JSON:
 
 {{
-	"leadership": 0-1,
-	"problem_solving": 0-1,
-	"adaptability": 0-1,
-	"teamwork": 0-1,
+	"metrics": {{
+		"relevance": 0-1,
+		"reasoning": 0-1,
+		"clarity": 0-1,
+		"specificity": 0-1,
+		"outcome": 0-1,
+		"authenticity": 0-1,
+		"tone": 0-1
+	}},
+	"final_score": 0-1,
+	"metric_justifications": {{
+		"relevance": "one-line reason",
+		"reasoning": "one-line reason",
+		"clarity": "one-line reason",
+		"specificity": "one-line reason",
+		"outcome": "one-line reason",
+		"authenticity": "one-line reason",
+		"tone": "one-line reason"
+	}},
 	"summary": "short explanation"
 }}
 
 Do NOT return anything else.
+""".strip()
+
+
+def build_hr_question_generation_prompt(skill: str, previous_questions: list[str] | None = None) -> str:
+	"""Build strict prompt for one high-quality HR scenario question per soft skill."""
+	skill_text = skill.strip() or "soft skill"
+	previous = [q.strip() for q in (previous_questions or []) if q.strip()]
+	previous_block = "\n".join(f"- {q}" for q in previous[-10:]) if previous else "- None"
+
+	skill_focus_map = {
+		"communication": "explanation, misunderstanding resolution, persuasion",
+		"teamwork": "conflict, collaboration, coordination",
+		"leadership": "decision-making, guiding others",
+		"problem_solving": "handling challenges and constraints",
+		"adaptability": "dealing with change and uncertainty",
+	}
+	skill_focus = skill_focus_map.get(skill_text.lower(), "real workplace situations tied to this soft skill")
+
+	return f"""
+You are an expert HR interviewer.
+
+Generate exactly ONE HR interview question for this soft skill:
+{skill_text}
+
+Skill focus guidance:
+{skill_focus}
+
+Mandatory requirements:
+- The question MUST be scenario-based and ask about a real past situation.
+- The question MUST avoid generic or opinion-only wording.
+- The question MUST force the candidate to reveal reasoning, clarity, specificity, and outcome/impact.
+- The question MUST be naturally answerable orally in about 30-60 seconds.
+- The question MUST NOT ask for coding, technical syntax, or long structured lists.
+- The question MUST be specific to the target soft skill.
+- Avoid repeating common templates and avoid repeating previous questions.
+
+Bad examples (do not produce):
+- What is teamwork?
+- Why is communication important?
+
+Good style examples:
+- Tell me about a time you had a conflict with a teammate. How did you handle it and what was the outcome?
+- Describe a situation where you had to explain a complex idea to someone. How did you ensure they understood?
+
+Previously asked HR questions:
+{previous_block}
+
+Output rules:
+- Return ONLY the final question
+- No labels
+- No explanation
+- No extra text
 """.strip()
 
 

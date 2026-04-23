@@ -5,6 +5,12 @@ from __future__ import annotations
 import math
 
 
+BETA = 0.75
+K = 0.5
+GAMMA = 0.4
+RHO = 0.825
+
+
 def _clamp(value: float, low: float = 0.0, high: float = 1.0) -> float:
     """Clamp a float value to an inclusive range."""
     return max(low, min(high, value))
@@ -14,25 +20,31 @@ def update_bkt_probability(
     p: float,
     s: float,
     n: int,
-    k: float = 0.6,
-    alpha: float = 1.5,
-    tau: float = 2.0,
+    sum_s: float,
+    beta: float = BETA,
+    k: float = K,
+    gamma: float = GAMMA,
+    rho: float = RHO,
 ) -> float:
-    """Update mastery probability with confidence-scaled score responsiveness."""
-    # Keep probability and score in valid bounds.
-    p_old = _clamp(float(p), low=0.01, high=0.99)
+    """Update probability using the cumulative-score formula."""
+    p_old = _clamp(float(p), low=0.0, high=1.0)
     score = _clamp(float(s))
     attempts = max(int(n), 1)
+    running_sum = float(sum_s)
+    mean_s = running_sum / attempts
 
-    # Confidence increases smoothly with question count; early updates stay conservative.
-    confidence_factor = 1.0 - math.exp(-attempts / float(tau))
+    alpha = 1.0 / (1.0 + float(beta) * attempts)
+    error = score - p_old
+    bounded_error = math.tanh(float(k) * error)
+    extremeness = abs(2.0 * score - 1.0)
+    extreme_factor = 1.0 + float(gamma) * extremeness
+    consistency_base = mean_s - 0.5
+    activation = attempts / (attempts + 1.0)
+    consistency_factor = 1.0 + float(rho) * consistency_base * activation
 
-    # Update strength scales with distance between score and current probability.
-    score_gap = score - p_old
-    delta = float(k) * score_gap * (1.0 + float(alpha) * abs(score_gap)) * confidence_factor
-
-    # Keep probability away from hard 0/1 lock-in.
-    p_next = _clamp(p_old + delta, low=0.01, high=0.99)
+    delta = alpha * bounded_error * extreme_factor * consistency_factor
+    p_next = p_old + delta
+    p_next = _clamp(p_next, low=0.0, high=1.0)
     return p_next
 
 
@@ -41,44 +53,52 @@ class BKTModel:
 
     def __init__(
         self,
-        initial_probability: float = 0.0,
-        k: float = 0.6,
-        alpha: float = 1.5,
+        initial_probability: float = 0.5,
+        k: float = K,
+        alpha: float = 0.0,
         tau: float = 2.0,
     ) -> None:
-        self.current_probability = _clamp(initial_probability, low=0.01, high=0.99)
-        self.k = k
+        self.current_probability = _clamp(initial_probability, low=0.0, high=1.0)
+        self.k = float(k)
         self.alpha = alpha
         self.tau = tau
+        self.n = 0
+        self.sum_s = 0.0
 
     def update(self, score: float, n: int) -> float:
-        """Update mastery probability using score-distance and confidence growth by attempts."""
-        p_old = _clamp(self.current_probability, low=0.01, high=0.99)
+        """Update probability in-place using cumulative score state."""
+        p_old = _clamp(self.current_probability, low=0.0, high=1.0)
         bounded_score = _clamp(score)
         attempts = max(int(n), 1)
+        self.n = attempts
+        self.sum_s = float(self.sum_s) + bounded_score
+        mean_s = self.sum_s / self.n
 
-        confidence_factor = 1.0 - math.exp(-attempts / float(self.tau))
-        score_gap = bounded_score - p_old
-        delta = (
-            float(self.k)
-            * score_gap
-            * (1.0 + float(self.alpha) * abs(score_gap))
-            * confidence_factor
-        )
+        alpha = 1.0 / (1.0 + BETA * self.n)
+        error = bounded_score - p_old
+        bounded_error = math.tanh(self.k * error)
+        extremeness = abs(2.0 * bounded_score - 1.0)
+        extreme_factor = 1.0 + GAMMA * extremeness
+        consistency_base = mean_s - 0.5
+        activation = self.n / (self.n + 1.0)
+        consistency_factor = 1.0 + RHO * consistency_base * activation
+        delta = alpha * bounded_error * extreme_factor * consistency_factor
+
         p_new = update_bkt_probability(
             p=p_old,
             s=bounded_score,
             n=attempts,
+            sum_s=self.sum_s,
+            beta=BETA,
             k=self.k,
-            alpha=self.alpha,
-            tau=self.tau,
+            gamma=GAMMA,
+            rho=RHO,
         )
 
         self.current_probability = p_new
         print(
             "[BKT UPDATE DEBUG] "
-            f"p_old={p_old:.4f}, s={bounded_score:.4f}, "
-            f"n={attempts}, confidence={confidence_factor:.4f}, "
-            f"delta={delta:.4f}, p_new={p_new:.4f}"
+            f"p_old={p_old:.4f}, s={bounded_score:.4f}, n={attempts}, "
+            f"mean_s={mean_s:.4f}, delta={delta:.4f}, p_new={p_new:.4f}"
         )
         return self.current_probability

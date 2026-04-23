@@ -38,25 +38,41 @@ QUESTION_TYPES_BY_LEVEL: dict[str, list[str]] = {
 }
 
 
-def compute_width(p: float, n: int, score: float) -> float:
-    """Compute adaptive width with count-dominant decay and moderate score influence."""
-    _ = float(p)  # Keep signature stable; width intentionally depends on count and score only.
-    attempts = max(int(n), 0)
-    bounded_score = max(0.0, min(1.0, float(score)))
-
-    # Base decay is the dominant factor and changes smoothly with question count.
-    base = 1.0 / math.sqrt(attempts + 1)
-
-    # Extremeness is 0 near 0.5 and 1 at 0 or 1.
-    extremeness = 4.0 * (bounded_score - 0.5) ** 2
-
-    # Score impact is intentionally limited to a maximum 25% adjustment.
-    score_factor = 1.0 - (0.25 * extremeness)
-
-    width = base * score_factor
-
-    # Prevent uncertainty from collapsing too early.
-    return max(0.05, width)
+def compute_width(width: float, cumulative_score: float, score: float, n: int) -> float:
+    """Update width using exponential decay with agreement factor.
+    
+    Formula: W_new = W_old * exp( -0.25 * (n / (n + 1)) ** 0.7 * (1 - abs(s - C)) )
+    
+    Args:
+        width: Current width (W_old)
+        cumulative_score: Cumulative score after update (C)
+        score: Current answer score in [0,1] (s)
+        n: Number of questions seen so far (after increment)
+    
+    Returns:
+        Updated width value
+    """
+    width = float(width)
+    C = float(cumulative_score)
+    s = float(score)
+    n = int(n)
+    
+    # Step 1: agreement = 1 - abs(s - C)
+    agreement = 1.0 - abs(s - C)
+    
+    # Step 2: n_factor = (n / (n + 1)) ** 0.7
+    n_factor = (n / (n + 1)) ** 0.7
+    
+    # Step 3: decay = 0.25 * n_factor * agreement
+    decay = 0.25 * n_factor * agreement
+    
+    # Step 4: exp_term = exp(-decay)
+    exp_term = math.exp(-decay)
+    
+    # Step 5: W = W * exp_term
+    width = width * exp_term
+    
+    return width
 
 
 class InterviewSessionService:
@@ -193,6 +209,8 @@ class InterviewSessionService:
                 }
 
             phase = session["phase"]
+            print(f"[DEBUG] Phase: {phase}")
+            print(f"[DEBUG] Skill: {session.get('current_skill', '')}")
             if phase == "technical" and bool(session.get("awaiting_next_question", False)):
                 return {
                     "status": "error",
@@ -243,11 +261,19 @@ class InterviewSessionService:
                 }
 
             pending_phase = str(session.get("pending_next_phase", "")).strip() or str(session.get("phase", ""))
-            pending_skill = str(session.get("pending_next_skill", "")).strip() or str(
-                session.get("current_skill", "")
-            )
+            if pending_phase == "hr":
+                pending_skill = ""
+            else:
+                pending_skill = str(session.get("pending_next_skill", "")).strip() or str(
+                    session.get("current_skill", "")
+                )
+
+            print(f"[DEBUG] Phase: {pending_phase}")
+            print(f"[DEBUG] Skill: {pending_skill}")
 
             session["current_question"] = next_question
+            session["phase"] = pending_phase
+            session["current_skill"] = pending_skill
             session["awaiting_next_question"] = False
             session["pending_next_question"] = ""
             session["pending_next_phase"] = ""
@@ -320,6 +346,7 @@ class InterviewSessionService:
                 "prev_probability": bkt.current_probability,
                 "difficulty": self._probability_to_level(bkt.current_probability),
                 "current_question": "",
+                "bkt_width": 1.0,
                 "question_difficulty": self._difficulty_level_to_numeric(
                     self._probability_to_level(bkt.current_probability)
                 ),
@@ -464,6 +491,7 @@ class InterviewSessionService:
                 "prev_probability": BASELINE_PROBABILITY,
                 "difficulty": self._probability_to_level(BASELINE_PROBABILITY),
                 "current_question": session.get("current_question", ""),
+                "bkt_width": 1.0,
                 "question_difficulty": self._difficulty_level_to_numeric(
                     self._probability_to_level(BASELINE_PROBABILITY)
                 ),
@@ -567,13 +595,18 @@ class InterviewSessionService:
         flow.current_probability = float(new_probability)
         flow.current_difficulty = difficulty_level
 
-        p = float(bkt.current_probability)
-        n = int(skill_state["question_count"])
-        s = max(0.0, min(1.0, float(score)))
-        bkt_width = compute_width(p=p, n=n, score=s)
+        previous_width = float(skill_state.get("bkt_width", 1.0))
+        cumulative_score = float(new_probability)
+        s = float(score)
+        bkt_width = compute_width(width=previous_width, cumulative_score=cumulative_score, score=s, n=question_count)
+        if bkt_width <= 0.0:
+            bkt_width = 1e-6
         skill_state["bkt_width"] = bkt_width
         session["skill_states"][skill] = skill_state
-        print(f"[BKT WIDTH DEBUG] p={p}, n={n}, s={s}, width={bkt_width}")
+        print(f"[DEBUG] Width after update: {bkt_width}")
+        print(
+            f"[BKT WIDTH DEBUG] C={cumulative_score}, s={s}, width_prev={previous_width}, width={bkt_width}"
+        )
 
         max_questions = 7
 
@@ -594,12 +627,7 @@ class InterviewSessionService:
         # DB writes are intentionally skipped during live answer flow to avoid blocking.
         # Final persistence happens after interview completion.
 
-        if question_count >= MAX_QUESTIONS_PER_SKILL or (
-            question_count >= MIN_QUESTIONS and float(skill_state.get("bkt_width", 1.0)) < WIDTH_THRESHOLD
-        ):
-            move_next_skill = True
-        else:
-            move_next_skill = False
+        move_next_skill = float(skill_state.get("bkt_width", 1.0)) < WIDTH_THRESHOLD
 
         if not move_next_skill:
             next_question = self._generate_question(
@@ -610,30 +638,40 @@ class InterviewSessionService:
                 session,
             )
             if next_question is None:
-                print("All questions exhausted for skill:", skill)
-                move_next_skill = True
-            else:
-                session["pending_next_question"] = next_question
-                session["pending_next_phase"] = "technical"
-                session["pending_next_skill"] = skill
-                session["pending_next_question_type"] = str(skill_state.get("next_question_type", ""))
-                session["awaiting_next_question"] = True
-                session["last_evaluation"] = {
-                    "score": round(float(score), 4),
-                    "bkt_probability": round(float(bkt.current_probability), 4),
-                    "bkt_width": round(float(skill_state.get("bkt_width", 0.0)), 4),
-                    "next_difficulty": str(skill_state.get("difficulty", "easy")),
-                    "next_question_type": str(skill_state.get("next_question_type", "")),
-                }
-                return {
-                    "status": "evaluated",
-                    "score": round(float(score), 4),
-                    "bkt_probability": round(float(bkt.current_probability), 4),
-                    "bkt_width": round(float(skill_state.get("bkt_width", 0.0)), 4),
-                    "next_difficulty": str(skill_state.get("difficulty", "easy")),
-                    "next_question_type": str(skill_state.get("next_question_type", "")),
-                    "weakness": weakness_output,
-                }
+                fallback_question = (
+                    f"Explain a core {skill} concept clearly and give one practical example."
+                )
+                if fallback_question in session["asked_questions"]:
+                    fallback_question = (
+                        f"Explain another core {skill} concept clearly and give one practical example."
+                    )
+                session["asked_questions"].add(fallback_question)
+                next_question = fallback_question
+                skill_state["next_question_type"] = "fallback"
+                skill_state["current_question"] = next_question
+                session["skill_states"][skill] = skill_state
+
+            session["pending_next_question"] = next_question
+            session["pending_next_phase"] = "technical"
+            session["pending_next_skill"] = skill
+            session["pending_next_question_type"] = str(skill_state.get("next_question_type", ""))
+            session["awaiting_next_question"] = True
+            session["last_evaluation"] = {
+                "score": round(float(score), 4),
+                "bkt_probability": round(float(bkt.current_probability), 4),
+                "bkt_width": round(float(skill_state.get("bkt_width", 0.0)), 4),
+                "next_difficulty": str(skill_state.get("difficulty", "easy")),
+                "next_question_type": str(skill_state.get("next_question_type", "")),
+            }
+            return {
+                "status": "evaluated",
+                "score": round(float(score), 4),
+                "bkt_probability": round(float(bkt.current_probability), 4),
+                "bkt_width": round(float(skill_state.get("bkt_width", 0.0)), 4),
+                "next_difficulty": str(skill_state.get("difficulty", "easy")),
+                "next_question_type": str(skill_state.get("next_question_type", "")),
+                "weakness": weakness_output,
+            }
 
         session["technical_results"][skill] = {
             "skill": skill,
@@ -662,6 +700,7 @@ class InterviewSessionService:
             next_state["selected_weak_areas"] = []
             next_state["current_question"] = ""
             next_state["difficulty"] = self._probability_to_level(BASELINE_PROBABILITY)
+            next_state["bkt_width"] = 1.0
 
             # Force baseline right on skill switch so no cross-skill carry-over can survive.
             next_state["bkt_model"].current_probability = BASELINE_PROBABILITY
@@ -718,6 +757,7 @@ class InterviewSessionService:
 
         print("All skills completed -> moving to HR")
         session["phase"] = "hr"
+        session["current_skill"] = ""
         session["hr_index"] = 0
         session["hr_per_question"] = []
         first_hr_question = flow.hr_agent.questions[0]
@@ -746,11 +786,14 @@ class InterviewSessionService:
 
     def _process_hr_answer(self, session: dict[str, Any], answer: str) -> dict[str, Any]:
         """Process one HR answer and finalize report if interview is complete."""
+        print(f"[DEBUG] Phase: hr")
+        print(f"[DEBUG] Skill: {session.get('current_skill', '')}")
         cleaned_answer = (answer or "").strip()
         if not cleaned_answer:
             return {
                 "status": "retry",
                 "phase": "hr",
+                "current_skill": "",
                 "question": session["current_question"],
                 "message": "No answer detected. Please respond or type 'skip'.",
             }
@@ -764,12 +807,14 @@ class InterviewSessionService:
             print("HR questions finished - ending interview")
             return self._finalize_session(session)
 
-        if session["hr_index"] >= 1:
-            return self._finalize_session(session)
-
         question = flow.hr_agent.questions[session["hr_index"]]
+        hr_skill = flow.hr_agent.get_skill_by_index(session["hr_index"])
 
-        evaluation = flow.hr_agent.evaluate_response(question=question, answer=cleaned_answer)
+        evaluation = flow.hr_agent.evaluate_response(
+            question=question,
+            answer=cleaned_answer,
+            skill=hr_skill,
+        )
         session["all_responses"].append({"phase": "hr", "answer": cleaned_answer})
 
         per_answer_behavioral = BehavioralAnalyzer().analyze(
@@ -777,10 +822,15 @@ class InterviewSessionService:
         )
         communication_score = float(per_answer_behavioral.get("communication", 0.0))
         confidence_score = float(per_answer_behavioral.get("confidence", 0.0))
-        leadership_score = float(evaluation.get("leadership", 0.0))
-        problem_solving_score = float(evaluation.get("problem_solving", 0.0))
-        adaptability_score = float(evaluation.get("adaptability", 0.0))
-        teamwork_score = float(evaluation.get("teamwork", 0.0))
+        final_skill_score = float(evaluation.get("final_score", 0.0))
+        hr_skill_scores = {
+            "leadership": 0.0,
+            "problem_solving": 0.0,
+            "adaptability": 0.0,
+            "teamwork": 0.0,
+        }
+        if hr_skill in hr_skill_scores:
+            hr_skill_scores[hr_skill] = final_skill_score
 
         if "hr_scores" not in session or not isinstance(session["hr_scores"], list):
             session["hr_scores"] = []
@@ -788,25 +838,38 @@ class InterviewSessionService:
             {
                 "communication": communication_score,
                 "confidence": confidence_score,
-                "leadership": leadership_score,
-                "problem_solving": problem_solving_score,
-                "adaptability": adaptability_score,
-                "teamwork": teamwork_score,
+                **hr_skill_scores,
             }
         )
 
+        metrics = evaluation.get("metrics", {})
+        if not isinstance(metrics, dict):
+            metrics = {}
+        metric_justifications = evaluation.get("metric_justifications", {})
+        if not isinstance(metric_justifications, dict):
+            metric_justifications = {}
+
         session["hr_per_question"].append(
             {
+                "skill": hr_skill,
                 "question": question,
                 "answer": cleaned_answer,
                 "scores": {
                     "communication": communication_score,
                     "confidence": confidence_score,
-                    "leadership": leadership_score,
-                    "problem_solving": problem_solving_score,
-                    "adaptability": adaptability_score,
-                    "teamwork": teamwork_score,
+                    **hr_skill_scores,
                 },
+                "metrics": {
+                    "relevance": float(metrics.get("relevance", 0.0)),
+                    "reasoning": float(metrics.get("reasoning", 0.0)),
+                    "clarity": float(metrics.get("clarity", 0.0)),
+                    "specificity": float(metrics.get("specificity", 0.0)),
+                    "outcome": float(metrics.get("outcome", 0.0)),
+                    "authenticity": float(metrics.get("authenticity", 0.0)),
+                    "tone": float(metrics.get("tone", 0.0)),
+                },
+                "final_score": final_skill_score,
+                "metric_justifications": metric_justifications,
                 "summary": evaluation["summary"],
             }
         )
@@ -816,9 +879,11 @@ class InterviewSessionService:
             next_question = flow.hr_agent.questions[next_hr_index]
             session["current_question"] = next_question
             session["hr_index"] = next_hr_index
+            session["current_skill"] = ""
             return {
                 "status": "in_progress",
                 "phase": "hr",
+                "current_skill": "",
                 "question": next_question,
             }
 
@@ -881,10 +946,55 @@ class InterviewSessionService:
         ]
         communication = self._average([float(x.get("communication", 0.0)) for x in hr_scores])
         confidence = self._average([float(x.get("confidence", 0.0)) for x in hr_scores])
-        leadership = self._average([float(x.get("leadership", 0.0)) for x in hr_scores])
-        problem_solving = self._average([float(x.get("problem_solving", 0.0)) for x in hr_scores])
-        adaptability = self._average([float(x.get("adaptability", 0.0)) for x in hr_scores])
-        teamwork = self._average([float(x.get("teamwork", 0.0)) for x in hr_scores])
+
+        leadership = self._average(
+            [
+                float(row.get("final_score", 0.0))
+                for row in session.get("hr_per_question", [])
+                if isinstance(row, dict) and str(row.get("skill", "")) == "leadership"
+            ]
+        )
+        problem_solving = self._average(
+            [
+                float(row.get("final_score", 0.0))
+                for row in session.get("hr_per_question", [])
+                if isinstance(row, dict) and str(row.get("skill", "")) == "problem_solving"
+            ]
+        )
+        adaptability = self._average(
+            [
+                float(row.get("final_score", 0.0))
+                for row in session.get("hr_per_question", [])
+                if isinstance(row, dict) and str(row.get("skill", "")) == "adaptability"
+            ]
+        )
+        teamwork = self._average(
+            [
+                float(row.get("final_score", 0.0))
+                for row in session.get("hr_per_question", [])
+                if isinstance(row, dict) and str(row.get("skill", "")) == "teamwork"
+            ]
+        )
+
+        metric_rows = [
+            row.get("metrics", {})
+            for row in session.get("hr_per_question", [])
+            if isinstance(row, dict) and isinstance(row.get("metrics"), dict)
+        ]
+        relevance = self._average([float(row.get("relevance", 0.0)) for row in metric_rows])
+        reasoning = self._average([float(row.get("reasoning", 0.0)) for row in metric_rows])
+        clarity = self._average([float(row.get("clarity", 0.0)) for row in metric_rows])
+        specificity = self._average([float(row.get("specificity", 0.0)) for row in metric_rows])
+        outcome = self._average([float(row.get("outcome", 0.0)) for row in metric_rows])
+        authenticity = self._average([float(row.get("authenticity", 0.0)) for row in metric_rows])
+        tone = self._average([float(row.get("tone", 0.0)) for row in metric_rows])
+        hr_weighted_final = self._average(
+            [
+                float(row.get("final_score", 0.0))
+                for row in session.get("hr_per_question", [])
+                if isinstance(row, dict)
+            ]
+        )
 
         hr_results = {
             "questions_asked": len(session.get("hr_per_question", [])),
@@ -896,6 +1006,14 @@ class InterviewSessionService:
                 "problem_solving": round(problem_solving, 4),
                 "adaptability": round(adaptability, 4),
                 "teamwork": round(teamwork, 4),
+                "relevance": round(relevance, 4),
+                "reasoning": round(reasoning, 4),
+                "clarity": round(clarity, 4),
+                "specificity": round(specificity, 4),
+                "outcome": round(outcome, 4),
+                "authenticity": round(authenticity, 4),
+                "tone": round(tone, 4),
+                "final_weighted_score": round(hr_weighted_final, 4),
             },
             "responses": [
                 item.get("answer", "")

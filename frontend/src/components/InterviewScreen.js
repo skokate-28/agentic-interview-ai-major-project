@@ -111,39 +111,41 @@ function InterviewScreen({
         </div>
       ) : null}
 
-      {mode === "text" ? (
-        <>
-          <label>Your Answer</label>
-          <textarea
-            rows={5}
-            value={answer}
-            onChange={(e) => onAnswerChange(e.target.value)}
-            placeholder="Type your answer"
-            disabled={loading || Boolean(evaluationData)}
-          />
-        </>
-      ) : (
-        <>
-          <label>Your Answer</label>
-          <textarea
-            rows={5}
-            value={answer}
-            onChange={(e) => onAnswerChange(e.target.value)}
-            placeholder="Use mic or edit the transcript here"
-            disabled={loading || Boolean(evaluationData)}
-          />
+      {!evaluationData ? (
+        mode === "text" ? (
+          <>
+            <label>Your Answer</label>
+            <textarea
+              rows={5}
+              value={answer}
+              onChange={(e) => onAnswerChange(e.target.value)}
+              placeholder="Type your answer"
+              disabled={loading}
+            />
+          </>
+        ) : (
+          <>
+            <label>Your Answer</label>
+            <textarea
+              rows={5}
+              value={answer}
+              onChange={(e) => onAnswerChange(e.target.value)}
+              placeholder="Use mic or edit the transcript here"
+              disabled={loading}
+            />
 
-          <button
-            type="button"
-            onClick={listening ? stopSpeechRecognition : startSpeechRecognition}
-            disabled={loading || Boolean(evaluationData)}
-          >
-            {listening ? "Stop Mic" : "Start Mic"}
-          </button>
+            <button
+              type="button"
+              onClick={listening ? stopSpeechRecognition : startSpeechRecognition}
+              disabled={loading}
+            >
+              {listening ? "Stop Mic" : "Start Mic"}
+            </button>
 
-          {speechError ? <div className="error">{speechError}</div> : null}
-        </>
-      )}
+            {speechError ? <div className="error">{speechError}</div> : null}
+          </>
+        )
+      ) : null}
 
       {!evaluationData ? (
         <button onClick={onSubmit} disabled={loading || !answer.trim()}>
