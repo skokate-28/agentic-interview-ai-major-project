@@ -94,7 +94,7 @@ function InterviewScreen({
         <div className="panel" style={{ marginTop: 12 }}>
           <h3>Evaluation</h3>
           <p>Score: {evaluationData.score ?? "-"}</p>
-          <p>BKT Probability: {evaluationData.bkt_probability ?? "-"}</p>
+          <p>Cumulative Score: {evaluationData.bkt_probability ?? "-"}</p>
           <p>BKT Width: {evaluationData.bkt_width ?? "-"}</p>
           <p>Next Difficulty: {evaluationData.next_difficulty ?? "-"}</p>
           <p>Next Question Type: {evaluationData.next_question_type ?? "-"}</p>

@@ -219,7 +219,7 @@ class InterviewSessionService:
             if phase == "technical":
                 return self._process_technical_answer(session, answer)
             if phase == "hr":
-                return self._process_hr_answer(session, answer)
+                return self._finalize_session(session)
 
             return {
                 "status": "complete",
@@ -253,14 +253,18 @@ class InterviewSessionService:
                     "message": "No pending next question. Submit an answer first.",
                 }
 
+            pending_phase = str(session.get("pending_next_phase", "")).strip() or str(session.get("phase", ""))
             next_question = str(session.get("pending_next_question", "")).strip()
+
+            if pending_phase in {"done", "hr"} or next_question == "__END__":
+                return self._finalize_session(session)
+
             if not next_question:
                 return {
                     "status": "error",
                     "message": "No next question available.",
                 }
 
-            pending_phase = str(session.get("pending_next_phase", "")).strip() or str(session.get("phase", ""))
             if pending_phase == "hr":
                 pending_skill = ""
             else:
@@ -755,23 +759,18 @@ class InterviewSessionService:
                 "weakness": weakness_output,
             }
 
-        print("All skills completed -> moving to HR")
-        session["phase"] = "hr"
-        session["current_skill"] = ""
-        session["hr_index"] = 0
-        session["hr_per_question"] = []
-        first_hr_question = flow.hr_agent.questions[0]
-        session["pending_next_question"] = first_hr_question
-        session["pending_next_phase"] = "hr"
+        print("All skills completed -> finishing interview")
+        session["pending_next_question"] = "__END__"
+        session["pending_next_phase"] = "done"
         session["pending_next_skill"] = ""
-        session["pending_next_question_type"] = "hr"
+        session["pending_next_question_type"] = "complete"
         session["awaiting_next_question"] = True
         session["last_evaluation"] = {
             "score": round(float(score), 4),
             "bkt_probability": round(float(bkt.current_probability), 4),
             "bkt_width": round(float(skill_state.get("bkt_width", 0.0)), 4),
-            "next_difficulty": "hr",
-            "next_question_type": "hr",
+            "next_difficulty": "complete",
+            "next_question_type": "complete",
         }
 
         return {
@@ -779,8 +778,8 @@ class InterviewSessionService:
             "score": round(float(score), 4),
             "bkt_probability": round(float(bkt.current_probability), 4),
             "bkt_width": round(float(skill_state.get("bkt_width", 0.0)), 4),
-            "next_difficulty": "hr",
-            "next_question_type": "hr",
+            "next_difficulty": "complete",
+            "next_question_type": "complete",
             "weakness": weakness_output,
         }
 

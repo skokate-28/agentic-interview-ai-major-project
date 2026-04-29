@@ -3,7 +3,6 @@ import React from "react";
 function FinalReportScreen({ report, onOpenDashboard }) {
   const technical = report?.technical || {};
   const globalScores = report?.global || {};
-  const hr = report?.hr || {};
   const technicalSkills = technical?.skills || {};
 
   return (
@@ -28,17 +27,6 @@ function FinalReportScreen({ report, onOpenDashboard }) {
         <ul>
           <li>Communication: {globalScores.communication ?? "-"}</li>
           <li>Confidence: {globalScores.confidence ?? "-"}</li>
-        </ul>
-      </section>
-
-      <section>
-        <h3>HR</h3>
-        <p>Overall Score: {hr.overall_score ?? "-"}</p>
-        <ul>
-          <li>Leadership: {hr.leadership ?? "-"}</li>
-          <li>Problem Solving: {hr.problem_solving ?? "-"}</li>
-          <li>Adaptability: {hr.adaptability ?? "-"}</li>
-          <li>Teamwork: {hr.teamwork ?? "-"}</li>
         </ul>
       </section>
 

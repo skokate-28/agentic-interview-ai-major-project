@@ -9,7 +9,6 @@ from typing import Any, Dict, List, TypedDict
 from uuid import uuid4
 
 from agents.evaluation_agent import EvaluationAgent
-from agents.hr_agent import HRAgent
 from agents.question_agent import QuestionAgent
 from config import settings
 from core.bkt_engine import BKTModel
@@ -93,7 +92,7 @@ class LangGraphInterviewFlow:
 
         self.question_agent = QuestionAgent()
         self.evaluation_agent = EvaluationAgent()
-        self.hr_agent = HRAgent()
+        self.hr_agent = None
 
         self._state_graph_cls = get_state_graph()
 
@@ -127,7 +126,7 @@ class LangGraphInterviewFlow:
             self.cat_engines[skill] = CATEngine()
 
     def start_interview(self) -> Dict[str, object]:
-        """Run full interview flow: technical skill loop, HR, then behavioral analysis."""
+        """Run full interview flow: technical skill loop, then behavioral analysis."""
         self.all_responses = []
         self.session_weak_areas = set()
         self.session_id = str(uuid4())
@@ -272,6 +271,9 @@ class LangGraphInterviewFlow:
 
     def run_hr_round(self) -> Dict[str, object]:
         """Run the fixed HR round and merge responses into global response history."""
+        if self.hr_agent is None:
+            return {}
+
         hr_results = self.hr_agent.run_hr_round()
         responses = hr_results.get("responses", [])
         if isinstance(responses, list):
@@ -495,6 +497,10 @@ class LangGraphInterviewFlow:
 
     def hr_node(self, state: InterviewState) -> InterviewState:
         """Run HR round and persist outputs into shared state."""
+        if self.hr_agent is None:
+            state["hr_results"] = {}
+            return state
+
         hr_results = self.run_hr_round()
         hr_answers = hr_results.get("responses", [])
         if "all_responses" not in state:
@@ -550,15 +556,13 @@ class LangGraphInterviewFlow:
         return graph
 
     def _build_main_graph(self) -> Any:
-        """Build top-level flow graph: technical -> HR -> behavioral -> end."""
+        """Build top-level flow graph: technical -> behavioral -> end."""
         graph = self._state_graph_cls(InterviewState)
         graph.add_node("technical", self.technical_node)
-        graph.add_node("hr", self.hr_node)
         graph.add_node("behavioral", self.behavioral_node)
 
         graph.set_entry_point("technical")
-        graph.add_edge("technical", "hr")
-        graph.add_edge("hr", "behavioral")
+        graph.add_edge("technical", "behavioral")
         graph.add_edge("behavioral", "__end__")
         return graph
 

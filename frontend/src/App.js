@@ -127,7 +127,6 @@ function App() {
           : {
               technical: data.technical || {},
               global: data.global || {},
-              hr: data.hr || {},
             };
         console.log("FINAL REPORT DATA:", response);
         setEvaluationData(null);
@@ -175,7 +174,6 @@ function App() {
           : {
               technical: data.technical || {},
               global: data.global || {},
-              hr: data.hr || {},
             };
         console.log("FINAL REPORT DATA:", response);
         setEvaluationData(null);

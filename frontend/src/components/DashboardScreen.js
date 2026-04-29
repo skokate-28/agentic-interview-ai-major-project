@@ -13,21 +13,6 @@ import {
 function DashboardScreen({ dashboard, onBackHome }) {
   const overallData = dashboard?.overall_score_history || [];
   const skillHistories = dashboard?.skill_histories || {};
-  const hrHistories = dashboard?.hr_metrics_history || {};
-
-  const hrDataMap = new Map();
-  Object.entries(hrHistories).forEach(([metric, points]) => {
-    (points || []).forEach((point) => {
-      const key = `${point.session_id}-${point.timestamp}`;
-      const row = hrDataMap.get(key) || {
-        session_id: point.session_id,
-        timestamp: point.timestamp,
-      };
-      row[metric] = point.score;
-      hrDataMap.set(key, row);
-    });
-  });
-  const hrData = Array.from(hrDataMap.values());
 
   return (
     <div className="panel">
@@ -68,24 +53,6 @@ function DashboardScreen({ dashboard, onBackHome }) {
             </div>
           ))
         )}
-      </section>
-
-      <section>
-        <h3>HR Metrics History</h3>
-        <ResponsiveContainer width="100%" height={320}>
-          <LineChart data={hrData}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="session_id" />
-            <YAxis domain={[0, 1]} />
-            <Tooltip />
-            <Legend />
-            <Line type="monotone" dataKey="overall_score" stroke="#1f77b4" name="HR Overall" />
-            <Line type="monotone" dataKey="communication" stroke="#ff7f0e" name="Communication" />
-            <Line type="monotone" dataKey="confidence" stroke="#2ca02c" name="Confidence" />
-            <Line type="monotone" dataKey="leadership" stroke="#d62728" name="Leadership" />
-            <Line type="monotone" dataKey="problem_solving" stroke="#9467bd" name="Problem Solving" />
-          </LineChart>
-        </ResponsiveContainer>
       </section>
 
       <button onClick={onBackHome}>Back to Home</button>
